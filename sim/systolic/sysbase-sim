@@ -1,0 +1,512 @@
+#!/usr/bin/env python
+#=========================================================================
+# sysbase-sim [options]
+#=========================================================================
+#
+#  -h --help           Display this message
+#
+#  --impl              {fl,SIZE,fixed,var,nstage}
+#  --SIZE              Size x Size of the Systolic array, ie 10 for 10x10
+#  --input dataset     {small,large,lomask,himask,lohimask,sparse}
+#  --trace             Display line tracing
+#  --stats             Display statistics
+#  --dump-vcd          Dump VCD to imul-<impl>-<input>.vcd
+#  --dump-vtb          Dump a Verilog test harness
+#
+# Author : Christopher Batten, Shunning Jiang
+# Date   : February 5, 2015
+#
+
+# Hack to add project root to python path
+
+import os
+import sys
+
+sim_dir = os.path.dirname( os.path.abspath( __file__ ) )
+while sim_dir:
+  if os.path.exists( sim_dir + os.path.sep + "pymtl.ini" ):
+    sys.path.insert(0,sim_dir)
+    break
+  sim_dir = os.path.dirname(sim_dir)
+
+import argparse
+import re
+
+from random import randint, seed
+
+seed(0xdeadbeef)
+
+from pymtl3 import *
+from pymtl3.stdlib.test_utils import config_model_with_cmdline_opts
+from pymtl3.passes.backends.verilog import VerilogPlaceholderPass
+
+from systolic.SysBase     import SysBase
+# from systolic.IntMulScycle import IntMulScycle
+# from systolic.IntMulFixed  import IntMulFixed
+# from systolic.IntMulVar    import IntMulVar
+# from systolic.IntMulNstage import IntMulNstage
+
+from systolic.test.SysBase_3x3_test import TestHarness
+
+#-------------------------------------------------------------------------
+# mk_imsg/mk_omsg
+#-------------------------------------------------------------------------
+
+# Make input message, truncate ints to ensure they fit in 32 bits.
+
+def mk_imsg( a, b ):
+  return concat( Bits1( a ), Bits32( b, trunc_int=True ) )
+
+
+# Make output message, truncate ints to ensure they fit in 32 bits.
+
+# def mk_omsg( a ):
+#   return Bits32( a, trunc_int=True )
+def mk_omsg( a, b ):
+ return concat( Bits1( a ), Bits32( b, trunc_int=True ) )
+
+#----------------------------------------------------------------------
+# Data Set: random small
+#----------------------------------------------------------------------
+
+small_pos_pos_10x10_1_msgs = [
+  #=========================================================================
+  # inputs
+  #=========================================================================
+  #                   A0_in                                   
+  [mk_imsg(0,1),mk_imsg(0,2), mk_imsg(0,3), mk_imsg(0,4), mk_imsg(0,5), mk_imsg(0,6),mk_imsg(0,7), mk_imsg(0,8), mk_imsg(0,9), mk_imsg(0,10), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0),mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+  #                       B0_in
+  [mk_imsg(0,1),mk_imsg(0,2), mk_imsg(0,3), mk_imsg(0,4), mk_imsg(0,5), mk_imsg(0,6),mk_imsg(0,7), mk_imsg(0,8), mk_imsg(0,9), mk_imsg(0,10), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0),mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+    #                       A1_in
+  [mk_imsg(0,11),mk_imsg(0,12), mk_imsg(0,13), mk_imsg(0,14), mk_imsg(0,15), mk_imsg(0,16),mk_imsg(0,17), mk_imsg(0,18), mk_imsg(0,19), mk_imsg(0,20), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0),mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+    #                           B1_in
+  [mk_imsg(0,11),mk_imsg(0,12), mk_imsg(0,13), mk_imsg(0,14), mk_imsg(0,15), mk_imsg(0,16),mk_imsg(0,17), mk_imsg(0,18), mk_imsg(0,19), mk_imsg(0,20), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0),mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+                          #  A2_in                                           
+  [mk_imsg(0,21),mk_imsg(0,22), mk_imsg(0,23), mk_imsg(0,24), mk_imsg(0,25), mk_imsg(0,26),mk_imsg(0,27), mk_imsg(0,28), mk_imsg(0,29), mk_imsg(0,30), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0),mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+  #                           B2_in
+  [mk_imsg(0,21),mk_imsg(0,22), mk_imsg(0,23), mk_imsg(0,24), mk_imsg(0,25), mk_imsg(0,26),mk_imsg(0,27), mk_imsg(0,28), mk_imsg(0,29), mk_imsg(0,30), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0),mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+                            #  A3_in                                           
+  [mk_imsg(0,31),mk_imsg(0,32), mk_imsg(0,33), mk_imsg(0,34), mk_imsg(0,35), mk_imsg(0,36),mk_imsg(0,37), mk_imsg(0,38), mk_imsg(0,39), mk_imsg(0,40), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0),mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+  #                           B3_in
+  [mk_imsg(0,31),mk_imsg(0,32), mk_imsg(0,33), mk_imsg(0,34), mk_imsg(0,35), mk_imsg(0,36),mk_imsg(0,37), mk_imsg(0,38), mk_imsg(0,39), mk_imsg(0,40), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0),mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+                              #  A4_in                                           
+  [mk_imsg(0,41),mk_imsg(0,42), mk_imsg(0,43), mk_imsg(0,44), mk_imsg(0,45), mk_imsg(0,46),mk_imsg(0,47), mk_imsg(0,48), mk_imsg(0,49), mk_imsg(0,50), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0),mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+  #                           B4_in
+  [mk_imsg(0,41),mk_imsg(0,42), mk_imsg(0,43), mk_imsg(0,44), mk_imsg(0,45), mk_imsg(0,46),mk_imsg(0,47), mk_imsg(0,48), mk_imsg(0,49), mk_imsg(0,50), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0),mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+  #                   A5_in                                   
+  [mk_imsg(0,51),mk_imsg(0,52), mk_imsg(0,53), mk_imsg(0,54), mk_imsg(0,55), mk_imsg(0,56),mk_imsg(0,57), mk_imsg(0,58), mk_imsg(0,59), mk_imsg(0,60), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0),mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+  #                       B5_in
+  [mk_imsg(0,51),mk_imsg(0,52), mk_imsg(0,53), mk_imsg(0,54), mk_imsg(0,55), mk_imsg(0,56),mk_imsg(0,57), mk_imsg(0,58), mk_imsg(0,59), mk_imsg(0,60), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0),mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+    #                       A6_in
+  [mk_imsg(0,61),mk_imsg(0,62), mk_imsg(0,63), mk_imsg(0,64), mk_imsg(0,65), mk_imsg(0,66),mk_imsg(0,67), mk_imsg(0,68), mk_imsg(0,69), mk_imsg(0,70), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0),mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+    #                           B6_in
+  [mk_imsg(0,61),mk_imsg(0,62), mk_imsg(0,63), mk_imsg(0,64), mk_imsg(0,65), mk_imsg(0,66),mk_imsg(0,67), mk_imsg(0,68), mk_imsg(0,69), mk_imsg(0,70), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0),mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+                          #  A7_in                                           
+  [mk_imsg(0,71),mk_imsg(0,72), mk_imsg(0,73), mk_imsg(0,74), mk_imsg(0,75), mk_imsg(0,76),mk_imsg(0,77), mk_imsg(0,78), mk_imsg(0,79), mk_imsg(0,80), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0),mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+  #                           B7_in
+  [mk_imsg(0,71),mk_imsg(0,72), mk_imsg(0,73), mk_imsg(0,74), mk_imsg(0,75), mk_imsg(0,76),mk_imsg(0,77), mk_imsg(0,78), mk_imsg(0,79), mk_imsg(0,80), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0),mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+                            #  A8_in                                           
+  [mk_imsg(0,81),mk_imsg(0,82), mk_imsg(0,83), mk_imsg(0,84), mk_imsg(0,85), mk_imsg(0,86),mk_imsg(0,87), mk_imsg(0,88), mk_imsg(0,89), mk_imsg(0,90), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0),mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+  #                           B8_in
+  [mk_imsg(0,81),mk_imsg(0,82), mk_imsg(0,83), mk_imsg(0,84), mk_imsg(0,85), mk_imsg(0,86),mk_imsg(0,87), mk_imsg(0,88), mk_imsg(0,89), mk_imsg(0,90), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0),mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+                              #  A9_in                                           
+  [mk_imsg(0,91),mk_imsg(0,92), mk_imsg(0,93), mk_imsg(0,94), mk_imsg(0,95), mk_imsg(0,96),mk_imsg(0,97), mk_imsg(0,98), mk_imsg(0,99), mk_imsg(0,100), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0),mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+  #                           B9_in
+  [mk_imsg(0,91),mk_imsg(0,92), mk_imsg(0,93), mk_imsg(0,94), mk_imsg(0,95), mk_imsg(0,96),mk_imsg(0,97), mk_imsg(0,98), mk_imsg(0,99), mk_imsg(0,100), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0),mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+  #=========================================================================
+  # outputs
+  #=========================================================================
+  #                          A0_out                                               
+  [mk_omsg(0,1),mk_omsg(0,2), mk_omsg(0,3), mk_omsg(0,4), mk_imsg(0,5), mk_omsg(0,6),mk_omsg(0,7), mk_omsg(0,8), mk_omsg(0,9), mk_imsg(0,10), mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0),mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0)],  
+  
+    #                        B0_out
+  [mk_omsg(0,1),mk_omsg(0,2), mk_omsg(0,3), mk_omsg(0,4), mk_imsg(0,5), mk_omsg(0,6),mk_omsg(0,7), mk_omsg(0,8), mk_omsg(0,9), mk_imsg(0,10), mk_imsg(1,5335), mk_omsg(1,4785), mk_omsg(1,4235), mk_omsg(1,3685), mk_omsg(1,3135), mk_imsg(1,2585), mk_omsg(1,2035), mk_omsg(1,1485), mk_omsg(1,935), mk_omsg(1,385)],  
+
+                          #  A1_out                                      
+  [mk_omsg(0,11),mk_omsg(0,12), mk_omsg(0,13), mk_omsg(0,14), mk_imsg(0,15), mk_omsg(0,16),mk_omsg(0,17), mk_omsg(0,18), mk_omsg(0,19), mk_imsg(0,20), mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0),mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0)],  
+  
+                            # B1_out     
+  [mk_omsg(0,11),mk_omsg(0,12), mk_omsg(0,13), mk_omsg(0,14), mk_imsg(0,15), mk_omsg(0,16),mk_omsg(0,17), mk_omsg(0,18), mk_omsg(0,19), mk_imsg(0,20), mk_imsg(1,14885), mk_omsg(1,13335), mk_omsg(1,11785), mk_omsg(1,10235), mk_omsg(1,8685), mk_imsg(1,7135), mk_omsg(1,5585), mk_omsg(1,4035), mk_omsg(1,2485), mk_omsg(1,935)],  
+  
+                           #  A2_out                                                 
+  [mk_omsg(0,21),mk_omsg(0,22), mk_omsg(0,23), mk_omsg(0,24), mk_imsg(0,25), mk_omsg(0,26),mk_omsg(0,27), mk_omsg(0,28), mk_omsg(0,29), mk_imsg(0,30), mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0),mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0)],  
+  
+  #                           B2_out             
+  [mk_omsg(0,21),mk_omsg(0,22), mk_omsg(0,23), mk_omsg(0,24), mk_imsg(0,25), mk_omsg(0,26),mk_omsg(0,27), mk_omsg(0,28), mk_omsg(0,29), mk_imsg(0,30), mk_imsg(1,24435), mk_omsg(1,21885), mk_omsg(1,19335), mk_omsg(1,16785), mk_omsg(1,14235), mk_imsg(1,11685), mk_omsg(1,9135), mk_omsg(1,6585), mk_omsg(1,4035), mk_omsg(1,1485)],    
+  
+                           #  A3_out                                                 
+  [mk_omsg(0,31),mk_omsg(0,32), mk_omsg(0,33), mk_omsg(0,34), mk_imsg(0,35), mk_omsg(0,36),mk_omsg(0,37), mk_omsg(0,38), mk_omsg(0,39), mk_imsg(0,40), mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0),mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0)],   
+  
+  #                           B3_out             
+  [mk_omsg(0,31),mk_omsg(0,32), mk_omsg(0,33), mk_omsg(0,34), mk_imsg(0,35), mk_omsg(0,36),mk_omsg(0,37), mk_omsg(0,38), mk_omsg(0,39), mk_imsg(0,40), mk_imsg(1,33985), mk_omsg(1,30435), mk_omsg(1,26885), mk_omsg(1,23335), mk_omsg(1,19785), mk_imsg(1,16235), mk_omsg(1,12685), mk_omsg(1,9135), mk_omsg(1,5585), mk_omsg(1,2035)],   
+  
+                           #  A4_out                                                 
+  [mk_omsg(0,41),mk_omsg(0,42), mk_omsg(0,43), mk_omsg(0,44), mk_imsg(0,45), mk_omsg(0,46),mk_omsg(0,47), mk_omsg(0,48), mk_omsg(0,49), mk_imsg(0,50), mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0),mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0)],   
+  
+  #                           B4_out             
+  [mk_omsg(0,41),mk_omsg(0,42), mk_omsg(0,43), mk_omsg(0,44), mk_imsg(0,45), mk_omsg(0,46),mk_omsg(0,47), mk_omsg(0,48), mk_omsg(0,49), mk_imsg(0,50),mk_imsg(1,43535), mk_omsg(1,38985), mk_omsg(1,34435), mk_omsg(1,29885), mk_omsg(1,25335), mk_imsg(1,20785), mk_omsg(1,16235), mk_omsg(1,11685), mk_omsg(1,7135), mk_omsg(1,2585)],   
+   
+   #                          50_out                                               
+  [mk_omsg(0,51),mk_omsg(0,52), mk_omsg(0,53), mk_omsg(0,54), mk_imsg(0,55), mk_omsg(0,56),mk_omsg(0,57), mk_omsg(0,58), mk_omsg(0,59), mk_imsg(0,60), mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0),mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0)],  
+  
+    #                        B5_out
+  [mk_omsg(0,51),mk_omsg(0,52), mk_omsg(0,53), mk_omsg(0,54), mk_imsg(0,55), mk_omsg(0,56),mk_omsg(0,57), mk_omsg(0,58), mk_omsg(0,59), mk_imsg(0,60), mk_imsg(1,53085), mk_omsg(1,47535), mk_omsg(1,41985), mk_omsg(1,36435), mk_omsg(1,30885), mk_imsg(1,25335), mk_omsg(1,19785), mk_omsg(1,14235), mk_omsg(1,8685), mk_omsg(1,3135)],   
+
+                          #  A6_out                                      
+  [mk_omsg(0,61),mk_omsg(0,62), mk_omsg(0,63), mk_omsg(0,64), mk_imsg(0,65), mk_omsg(0,66),mk_omsg(0,67), mk_omsg(0,68), mk_omsg(0,69), mk_imsg(0,70), mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0),mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0)],  
+  
+                            # B6_out     
+  [mk_omsg(0,61),mk_omsg(0,62), mk_omsg(0,63), mk_omsg(0,64), mk_imsg(0,65), mk_omsg(0,66),mk_omsg(0,67), mk_omsg(0,68), mk_omsg(0,69), mk_imsg(0,70), mk_imsg(1,62635), mk_omsg(1,56085), mk_omsg(1,49535), mk_omsg(1,42985), mk_omsg(1,36435), mk_imsg(1,29885), mk_omsg(1,23335), mk_omsg(1,16785), mk_omsg(1,10235), mk_omsg(1,3685)],  
+  
+                           #  A7_out                                                 
+  [mk_omsg(0,71),mk_omsg(0,72), mk_omsg(0,73), mk_omsg(0,74), mk_imsg(0,75), mk_omsg(0,76),mk_omsg(0,77), mk_omsg(0,78), mk_omsg(0,79), mk_imsg(0,80), mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0),mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0)],  
+  
+  #                           B7_out             
+  [mk_omsg(0,71),mk_omsg(0,72), mk_omsg(0,73), mk_omsg(0,74), mk_imsg(0,75), mk_omsg(0,76),mk_omsg(0,77), mk_omsg(0,78), mk_omsg(0,79), mk_imsg(0,80), mk_imsg(1,72185), mk_omsg(1,64635), mk_omsg(1,57085), mk_omsg(1,49535), mk_omsg(1,41985), mk_imsg(1,34435), mk_omsg(1,26885), mk_omsg(1,19335), mk_omsg(1,11785), mk_omsg(1,4235)],   
+  
+                           #  A8_out                                                 
+  [mk_omsg(0,81),mk_omsg(0,82), mk_omsg(0,83), mk_omsg(0,84), mk_imsg(0,85), mk_omsg(0,86),mk_omsg(0,87), mk_omsg(0,88), mk_omsg(0,89), mk_imsg(0,90), mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0),mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0)],   
+  
+  #                           B8_out             
+  [mk_omsg(0,81),mk_omsg(0,82), mk_omsg(0,83), mk_omsg(0,84), mk_imsg(0,85), mk_omsg(0,86),mk_omsg(0,87), mk_omsg(0,88), mk_omsg(0,89), mk_imsg(0,90), mk_imsg(1,81735), mk_omsg(1,73185), mk_omsg(1,64635), mk_omsg(1,56085), mk_omsg(1,47535), mk_imsg(1,38985), mk_omsg(1,30435), mk_omsg(1,21885), mk_omsg(1,13335), mk_omsg(1,4785)],    
+  
+                           #  A9_out                                                 
+  [mk_omsg(0,91),mk_omsg(0,92), mk_omsg(0,93), mk_omsg(0,94), mk_imsg(0,95), mk_omsg(0,96),mk_omsg(0,97), mk_omsg(0,98), mk_omsg(0,99), mk_imsg(0,100), mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0),mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0)],   
+  
+  #                           B9_out             
+  [mk_omsg(0,91),mk_omsg(0,92), mk_omsg(0,93), mk_omsg(0,94), mk_imsg(0,95), mk_omsg(0,96),mk_omsg(0,97), mk_omsg(0,98), mk_omsg(0,99), mk_imsg(0,100), mk_imsg(1,91285), mk_omsg(1,81735), mk_omsg(1,72185), mk_omsg(1,62635), mk_omsg(1,53085), mk_imsg(1,43535), mk_omsg(1,33985), mk_omsg(1,24435), mk_omsg(1,14885), mk_omsg(1,5335)],  
+]
+
+small_pos_pos_2x2_1_msgs = [
+  # inputs
+  #                   A0                                   
+  [mk_imsg(0,1),mk_imsg(0,2), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+  #                       B0_in
+  [ mk_imsg(0,10),mk_imsg(0,20), mk_imsg(1,0), mk_imsg(1,0)],
+
+                          #  A1_in                                                                            B_In                                
+  [mk_imsg(0,3),mk_imsg(0,4), mk_imsg(1,0), mk_imsg(1,0)],  
+  
+  #                           B1_in
+  [ mk_imsg(0,30),mk_imsg(0,40), mk_imsg(1,0), mk_imsg(1,0)],
+  
+  # outputs
+  #                   A0                                          B0
+                          #  A_In                                B_In                                   
+  [mk_omsg(0,1),mk_omsg(0,2), mk_omsg(1,0), mk_imsg(1,0)],  [ mk_omsg(0,10),mk_omsg(0,20), mk_omsg(1,110), mk_omsg(1,50)],
+  #                   A1                                          B1
+                          #  A_In                                B_In                                
+  [mk_omsg(0,3),mk_omsg(0,4), mk_imsg(1,0), mk_imsg(1,0)],  [ mk_omsg(0,30),mk_omsg(0,40), mk_imsg(1,250), mk_imsg(1,110)]
+  
+  
+]
+
+small_pos_pos_3x3_1_msgs = [
+  # inputs
+  #                   A0_in                                   
+  [ mk_imsg(0,1),mk_imsg(0,2), mk_imsg(0,3), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+  #                       B0_in
+  [ mk_imsg(0,10),mk_imsg(0,20), mk_imsg(0,30), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)],
+  
+  
+  
+    #                       A1_in
+  [ mk_imsg(0,4),mk_imsg(0,5), mk_imsg(0,6), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)],
+  
+    #                           B1_in
+  [ mk_imsg(0,40),mk_imsg(0,50), mk_imsg(0,60), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)],
+  
+  
+
+                          #  A2_in                                           
+  [mk_imsg(0,7),mk_imsg(0,8), mk_imsg(0,9), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)],  
+  
+  #                           B2_in
+  [ mk_imsg(0,70),mk_imsg(0,80), mk_imsg(0,90), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)],
+  
+
+  # outputs
+  #                          A0_out                                               
+  [mk_omsg(0,1),mk_omsg(0,2), mk_imsg(0,3), mk_omsg(1,0), mk_imsg(1,0), mk_imsg(1,0)],  
+  
+    #                            B0_out
+  [ mk_omsg(0,10),mk_omsg(0,20), mk_imsg(0,30), mk_omsg(1,500), mk_omsg(1,320), mk_imsg(1,140)],
+
+                          #  A1_out                                      
+  [mk_omsg(0,4),mk_omsg(0,5), mk_imsg(0,6), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+                            # B1_out     
+  [ mk_omsg(0,40), mk_omsg(0,50), mk_imsg(0,60), mk_imsg(1,1220), mk_imsg(1,770), mk_imsg(1,320)],
+  
+                            #  A2_out                                                 
+  [mk_omsg(0,7),mk_omsg(0,8), mk_imsg(0,9), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)],  
+  
+  #                         B2_out             
+  [ mk_omsg(0,70),mk_omsg(0,80), mk_imsg(0,90), mk_imsg(1,1940), mk_imsg(1,1220), mk_imsg(1,500)]
+]
+
+small_pos_pos_5x5_1_msgs = [
+  #=========================================================================
+  # inputs
+  #=========================================================================
+  #                   A0_in                                   
+  [mk_imsg(0,1),mk_imsg(0,2), mk_imsg(0,3), mk_imsg(0,4), mk_imsg(0,5), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)], 
+  
+  #                       B0_in
+  [ mk_imsg(0,1),mk_imsg(0,2), mk_imsg(0,3), mk_imsg(0,4), mk_imsg(0,5), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)],
+  
+    #                       A1_in
+  [ mk_imsg(0,6),mk_imsg(0,7), mk_imsg(0,8), mk_imsg(0,9), mk_imsg(0,10), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)],
+  
+    #                           B1_in
+  [ mk_imsg(0,6),mk_imsg(0,7), mk_imsg(0,8), mk_imsg(0,9), mk_imsg(0,10), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)],
+  
+                          #  A2_in                                           
+  [mk_imsg(0,11),mk_imsg(0,12), mk_imsg(0,13), mk_imsg(0,14), mk_imsg(0,15), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)],  
+  
+  #                           B2_in
+  [mk_imsg(0,11),mk_imsg(0,12), mk_imsg(0,13), mk_imsg(0,14), mk_imsg(0,15), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)],  
+  
+                            #  A3_in                                           
+  [mk_imsg(0,16),mk_imsg(0,17), mk_imsg(0,18), mk_imsg(0,19), mk_imsg(0,20), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)],  
+  
+  #                           B3_in
+  [mk_imsg(0,16),mk_imsg(0,17), mk_imsg(0,18), mk_imsg(0,19), mk_imsg(0,20), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)],  
+  
+                              #  A4_in                                           
+  [mk_imsg(0,21),mk_imsg(0,22), mk_imsg(0,23), mk_imsg(0,24), mk_imsg(0,25), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)],  
+  
+  #                           B4_in
+  [mk_imsg(0,21),mk_imsg(0,22), mk_imsg(0,23), mk_imsg(0,24), mk_imsg(0,25), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0), mk_imsg(1,0)],  
+  
+  #=========================================================================
+  # outputs
+  #=========================================================================
+  #                          A0_out                                               
+  [mk_omsg(0,1),mk_omsg(0,2), mk_omsg(0,3), mk_omsg(0,4), mk_imsg(0,5), mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0)],  
+  
+    #                        B0_out
+  [mk_omsg(0,1),mk_omsg(0,2), mk_omsg(0,3), mk_omsg(0,4), mk_imsg(0,5), mk_imsg(1,355), mk_omsg(1,280), mk_omsg(1,205), mk_omsg(1,130), mk_omsg(1,55)],  
+
+                          #  A1_out                                      
+  [mk_omsg(0,6),mk_omsg(0,7), mk_omsg(0,8), mk_omsg(0,9), mk_imsg(0,10), mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0)], 
+  
+                            # B1_out     
+  [mk_omsg(0,6),mk_omsg(0,7), mk_omsg(0,8), mk_omsg(0,9), mk_imsg(0,10), mk_imsg(1,930), mk_omsg(1,730), mk_omsg(1,530), mk_omsg(1,330), mk_omsg(1,130)], 
+  
+                           #  A2_out                                                 
+  [mk_omsg(0,11),mk_omsg(0,12), mk_omsg(0,13), mk_omsg(0,14), mk_imsg(0,15), mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0)],  
+  
+  #                           B2_out             
+  [mk_omsg(0,11),mk_omsg(0,12), mk_omsg(0,13), mk_omsg(0,14), mk_imsg(0,15), mk_imsg(1,1505), mk_omsg(1,1180), mk_omsg(1,855), mk_omsg(1,530), mk_omsg(1,205)],  
+  
+                           #  A3_out                                                 
+  [mk_omsg(0,16),mk_omsg(0,17), mk_omsg(0,18), mk_omsg(0,19), mk_imsg(0,20), mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0)],  
+  
+  #                           B3_out             
+  [mk_omsg(0,16),mk_omsg(0,17), mk_omsg(0,18), mk_omsg(0,19), mk_imsg(0,20), mk_imsg(1,2080), mk_omsg(1,1630), mk_omsg(1,1180), mk_omsg(1,730), mk_omsg(1,280)],  
+  
+                           #  A4_out                                                 
+  [mk_omsg(0,21),mk_omsg(0,22), mk_omsg(0,23), mk_omsg(0,24), mk_imsg(0,25), mk_imsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0), mk_omsg(1,0)],  
+  
+  #                           B4_out             
+  [mk_omsg(0,21),mk_omsg(0,22), mk_omsg(0,23), mk_omsg(0,24), mk_imsg(0,25), mk_imsg(1,2655), mk_omsg(1,2080), mk_omsg(1,1505), mk_omsg(1,930), mk_omsg(1,355)],  
+]
+
+
+# from systolic.test.SysBase_10x10_test import small_pos_pos_10x10_1_msgs
+# from systolic.test.SysBase_5x5_test import small_pos_pos_5x5_1_msgs
+# from systolic.test.SysBase_4x4_test import small_pos_pos_4x4_1_msgs
+from systolic.test.SysBase_3x3_test import small_pos_pos_3x3_1_msgs
+# from systolic.test.SysBase_2x2_test import small_pos_pos_2x2_1_msgs
+
+# ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''/\
+
+#-------------------------------------------------------------------------
+# Command line processing
+#-------------------------------------------------------------------------
+
+class ArgumentParserWithCustomError(argparse.ArgumentParser):
+  def error( self, msg = "" ):
+    if ( msg ): print("\n ERROR: %s" % msg)
+    print("")
+    file = open( sys.argv[0] )
+    for ( lineno, line ) in enumerate( file ):
+      if ( line[0] != '#' ): sys.exit(msg != "")
+      if ( (lineno == 2) or (lineno >= 4) ): print( line[1:].rstrip("\n") )
+
+def parse_cmdline():
+  p = ArgumentParserWithCustomError( add_help=False )
+
+  # Standard command line arguments
+
+  p.add_argument( "-h", "--help",    action="store_true" )
+
+  # Additional commane line arguments for the simulator
+
+  p.add_argument( "--impl", default="fl",
+    choices=["fl","scycle","fixed","var","SIZE"] )
+
+  p.add_argument( "--SIZE", default=3 )
+
+  # p.add_argument( "--input", default="small_pos_pos",
+  #   choices=["small_pos_pos"] )
+  
+  p.add_argument( "--input", default="small_pos_pos",
+    choices=["small_pos_pos","large","lomask","himask","lohimask","sparse"] )
+
+  # ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''/\
+
+  p.add_argument( "--trace",     action="store_true" )
+  p.add_argument( "--stats",     action="store_true" )
+  p.add_argument( "--translate", action="store_true" )
+  p.add_argument( "--dump-vcd",  action="store_true" )
+  p.add_argument( "--dump-vtb",  action="store_true" )
+
+  opts = p.parse_args()
+  if opts.help: p.error()
+  return opts
+
+#-------------------------------------------------------------------------
+# Main
+#-------------------------------------------------------------------------
+
+def main():
+  opts = parse_cmdline()
+
+  # Create the input pattern
+
+  inputs  = None
+
+  # ''' LAB TASK '''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+  # Use additional if statements to set the inputs appropriately based on
+  # the --input command line option.
+  # ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''\/
+  #:
+  #: if opts.input == "small":
+  #:   inputs = random_small_msgs
+  #:
+
+  if   opts.input == "small_pos_pos":    inputs = small_pos_pos_5x5_1_msgs
+  elif opts.input == "large":            inputs = small_pos_pos_5x5_1_msgs
+  elif opts.input == "lomask":           inputs = small_pos_pos_5x5_1_msgs
+  elif opts.input == "himask":           inputs = small_pos_pos_5x5_1_msgs
+  elif opts.input == "lohimask":         inputs = small_pos_pos_5x5_1_msgs
+  elif opts.input == "sparse":           inputs = small_pos_pos_5x5_1_msgs
+
+  # ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''/\
+
+  # ninputs = len(inputs[::2])
+  ninputs = len(inputs[0])
+
+  # Determine which model to use in the simulator
+
+  model_impl_dict = {
+    "fl"     : SysBase,
+    "scycle" : SysBase,
+    "fixed"  : SysBase,
+    "var"    : SysBase,
+    "SIZE"   : SysBase,
+  }
+
+  # Check if translation is valid
+
+  if opts.translate and opts.impl.startswith("fl"):
+    print("\n ERROR: --translate only works with RTL models \n")
+    # exit(1)
+
+  # Create test harness (we can reuse the harness from unit testing)
+
+  if opts.impl == "SIZE":
+    th = TestHarness( model_impl_dict[ opts.impl ]( SIZE=opts.SIZE ) )
+  else:
+    th = TestHarness( model_impl_dict[ opts.impl ]() )
+
+  th.set_param( "top.srcA0.construct", msgs=inputs[0] )
+  th.set_param( "top.srcB0.construct", msgs=inputs[1] )
+  th.set_param( "top.srcA1.construct", msgs=inputs[2] )
+  th.set_param( "top.srcB1.construct", msgs=inputs[3] )
+  th.set_param( "top.srcA2.construct", msgs=inputs[4] )
+  th.set_param( "top.srcB2.construct", msgs=inputs[5] )
+  th.set_param( "top.srcA3.construct", msgs=inputs[6] )
+  th.set_param( "top.srcB3.construct", msgs=inputs[7] )
+  th.set_param( "top.srcA4.construct", msgs=inputs[8] )
+  th.set_param( "top.srcB4.construct", msgs=inputs[9] )
+  
+  th.set_param( "top.sinkA0.construct", msgs=inputs[10] )
+  th.set_param( "top.sinkB0.construct", msgs=inputs[11] )
+  th.set_param( "top.sinkA1.construct", msgs=inputs[12] )
+  th.set_param( "top.sinkB1.construct", msgs=inputs[13] )
+  th.set_param( "top.sinkA2.construct", msgs=inputs[14] )
+  th.set_param( "top.sinkB2.construct", msgs=inputs[15] )
+  th.set_param( "top.sinkA3.construct", msgs=inputs[16] )
+  th.set_param( "top.sinkB3.construct", msgs=inputs[17] )
+  th.set_param( "top.sinkA4.construct", msgs=inputs[18] )
+  th.set_param( "top.sinkB4.construct", msgs=inputs[19] )
+
+  # Create VCD filename
+  
+  if opts.impl == "SIZE":
+    unique_name = f"systolic-{int(opts.SIZE)}x{int(opts.SIZE)}-{opts.input}"
+  else:
+    unique_name = f"systolic-{opts.impl}-{opts.input}"
+
+  cmdline_opts = {
+    'dump_vcd': f"{unique_name}" if opts.dump_vcd else '',
+    'dump_vtb': f"{unique_name}" if opts.dump_vtb else '',
+    'test_verilog': 'zeros' if opts.translate else '',
+  }
+  
+
+  # Configure the test harness component
+
+  config_model_with_cmdline_opts( th, cmdline_opts, duts=['pe'] )
+
+  # Apply necessary passes
+
+  th.apply( DefaultPassGroup( linetrace=opts.trace ) )
+
+  # Reset test harness
+
+  th.sim_reset()
+
+  # Run simulation
+
+  while not th.done():
+    th.sim_tick()
+
+  # Extra ticks to make VCD easier to read
+
+  th.sim_tick()
+  th.sim_tick()
+  th.sim_tick()
+
+  # Display statistics
+
+  if opts.stats:
+    print( f"num_cycles         = {th.sim_cycle_count()}" )
+    print( f"num_cycles_per_macc = {th.sim_cycle_count()/(0.5*ninputs):1.2f}" )
+
+main()

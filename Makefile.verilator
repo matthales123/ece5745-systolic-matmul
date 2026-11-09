@@ -1,0 +1,47 @@
+# Makefile.verilator: build project with Verilator
+
+# Top C++ testbench
+TOP_CPP      = sim/proc/top_tb.cpp
+# Top-level Verilog module (accelerator wrapper)
+TOP_MOD      = mmulXcel
+
+# Verilog source directory (accelerator files)
+VERILOG_SRC  = sim/proc
+# Library directories (relative to project root)
+LIB_VC_DIR   = vc
+LIB_SYST_DIR = systolic
+
+# Project Verilog sources
+VERILOG_SRCS = \
+    $(VERILOG_SRC)/mmulXcel.v \
+    $(VERILOG_SRC)/control_fsm.v \
+    $(VERILOG_SRC)/load_unit.v \
+    $(VERILOG_SRC)/store_unit.v \
+    $(VERILOG_SRC)/SysBase.v
+
+# C++ Testbench
+TESTBENCH   = sim/proc/top_tb.cpp
+
+# VC library sources
+VC_SRCS     = $(wildcard $(LIB_VC_DIR)/*.v)
+# Systolic library sources
+SYST_SRCS   = $(wildcard $(LIB_SYST_DIR)/*.v)
+
+# Verilator invocation
+VERILATOR        = verilator
+VERILATOR_FLAGS  = --cc --exe --build -Wall \
+                    -I.              \
+                    -Isim/proc
+
+all: sim
+
+sim:
+	$(VERILATOR) $(VERILATOR_FLAGS) \
+	  --top-module $(TOP_MOD) \
+	  $(VERILOG_SRCS) $(VC_SRCS) $(SYST_SRCS) $(TESTBENCH)
+
+clean:
+	 rm -rf obj_dir
+	 rm -f wave.vcd
+
+.PHONY: all sim clean
